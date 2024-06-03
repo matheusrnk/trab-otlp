@@ -104,7 +104,7 @@ recIf = do
     reserved "then"
     e2 <- expr
     reserved "else"
-    If e1 e2 <$> expr -- o erro é entre bool e a continuação da expressão
+    If e1 e2 <$> expr
 
 tup =
     parens (do {e1 <- expr; symbol ","; App (Const "(,)") . App e1 <$> expr;})
