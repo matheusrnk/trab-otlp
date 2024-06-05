@@ -123,18 +123,21 @@ pvar i = do {return $ PVar i}
 
 pcon i = do {PCon i <$> pats;}
 
-pconParens = parens (do {p1 <- pat; symbol ","; p2 <- pat; return $ PCon "(,)" [p1, p2]})
+pconTup = parens (do {p1 <- pat; symbol ","; p2 <- pat; return $ PCon "(,)" [p1, p2]})
 
 pVarOrPCon = do
     i <- identifier
     if isLower (head i) then pvar i
     else pcon i
 
+pConsLit = do {PLit <$> recLit;}
+
 pats = do {p <- pat; ps <- pats; return (p:ps)}
       <|> return []
 
-pat = pconParens
+pat = pconTup
     <|> pVarOrPCon
+    <|> pConsLit
 
 patExpr = do
     p <- pat
