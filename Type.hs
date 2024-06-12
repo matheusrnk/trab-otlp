@@ -9,13 +9,22 @@ data Assump = Id :>: SimpleType deriving (Eq, Show)
 
 data SimpleType  =  TVar Id
                   | TArr  SimpleType SimpleType
+                  | TCon String
+                  | TApp SimpleType SimpleType
+                  | TGen Int
                   deriving Eq
 
 instance Show SimpleType where
-   show (TVar i) = i
-   show (TArr (TVar i) t) = i++" -> "++show t   
-   show (TArr t t') = "("++show t++")"++"->"++show t'          
+   show (TVar i)    = i
+   show (TArr (TVar i) t) = i ++ " -> " ++ show t
+   show (TArr (TCon s) t) = s ++ " -> " ++ show t
+   show (TArr (TGen n) t) = "Gen" ++ show n ++ " -> " ++ show t
+   show (TArr t t') = "(" ++ show t ++ ") -> " ++ show t'
+   show (TCon s)    = s
+   show (TApp t1 t2) = "(" ++ show t1 ++ " " ++ show t2 ++ ")"
+   show (TGen n)    = "Gen" ++ show n
 --------------------------
+
 instance Functor TI where
    fmap f (TI m) = TI (\e -> let (a, e') = m e in (f a, e'))
 
@@ -50,14 +59,19 @@ class Subs t where
   tv    :: t -> [Id]
 
 instance Subs SimpleType where
-  apply s (TVar u)  =   
-                    case lookup u s of
-                       Just t  -> t
-                       Nothing -> TVar u
-  apply s (TArr l r) =  (TArr (apply s l) (apply s r))
-
+   apply s (TVar u)  =   
+                     case lookup u s of
+                        Just t  -> t
+                        Nothing -> TVar u
+   apply s (TCon u)  =  TCon u
+   apply s (TGen u)  =  TGen u
+   apply s (TApp t1 t2)  = (TApp (apply s t1) (apply s t2))
+   apply s (TArr l r) =  (TArr (apply s l) (apply s r))
 
   tv (TVar u)  = [u]
+  tv (TCon _) = []
+  tv (TGen _) = []
+  tv (TApp t1 t2) = tv t1 `union` tv t2
   tv (TArr l r) = tv l `union` tv r
 
 
