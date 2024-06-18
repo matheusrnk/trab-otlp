@@ -9,17 +9,19 @@ data Pat = PVar Id
            | PCon Id [Pat]
            deriving (Eq, Show)
 
-data Literal = LitInt Integer | LitBool Bool deriving (Show, Eq) 
+data Literal = LitInt Integer | LitBool Bool deriving (Show, Eq)
 
-data Expr = Var Id 
-            | Const Id 
-            | App Expr Expr 
-            | Lam Id Expr 
-            | Lit Literal 
-            | If Expr Expr Expr 
+data Expr = Var Id
+            | Const Id
+            | App Expr Expr
+            | Lam Id Expr
+            | Lit Literal
+            | If Expr Expr Expr
             | Case Expr [(Pat, Expr)]
             | Let (Id, Expr) Expr
             deriving (Eq, Show)
+
+-- funcs utilizadas do Type.hs => freshVar, /+/, apply, -->, @@, unify
 
 tiContext g i = if l /= [] then t else error ("Undefined: " ++ i ++ "\n")
    where
@@ -35,6 +37,12 @@ tiExpr g (App e e') = do (t, s1) <- tiExpr g e
 tiExpr g (Lam i e) = do b <- freshVar
                         (t, s)  <- tiExpr (g/+/[i:>:b]) e
                         return (apply s (b --> t), s)
+tiExpr g (Const i) = return (tiContext g i, [])
+tiExpr g (Lit (LitBool b)) = return (tiContext g (show b), [])
+tiExpr g (Lit (LitInt i)) = return (TCon "Int", [])
+-- tiExpr g (If e e' e'') = todo
+-- tiExpr g (Case e ((p, e'):patts)) = todo
+-- tiExpr g (Let (i, e) e') = todo
 
 --- Examples ---
 ex1 = Lam "f" (Lam "x" (App (Var "f") (Var "x")))
@@ -44,7 +52,12 @@ ex4 = Lam "x" (Lam "x" (Var "x"))
 ex5 = Lam "w" (Lam "y" (Lam "x" (App (Var "y") (App (App (Var "w") (Var "y")) (Var "x")))))
 ex6 = Lam "x" (Lam "y" (Lam "w" (Lam "u" (App (App (Var "x") (Var "w")) (App (App (Var "y") (Var "w")) (Var "u"))))))
 
-infer e = runTI (tiExpr [] e)
+-- (,) : t0 -> (t1 -> (("(,)" t0) t1))  => t0 -> t1 -> (t0, t1)
+iniCont = ["(,)" :>: TArr (TGen 0) (TArr (TGen 1) (TApp (TApp (TCon "(,)") (TGen 0)) (TGen 1))),
+            "True" :>: TCon "Bool", "False" :>: TCon "Bool"]
+
+
+infer e = runTI (tiExpr iniCont e) -- passa o contexto inicial
 
 -------- Lexical ---------------
 
@@ -159,14 +172,14 @@ caseof = do
     symbol "}"
     return $ Case e lp
 
-parseNonApp = try $ parens expr -- (E)
-              <|> try caseof    -- case E of {<lpat>}
-              <|> lamAbs        -- \x.E
-              <|> recIf         -- if E then E else E
-              <|> tup           -- (E, E)
-              <|> try recLet    -- let x = E in E
-              <|> lit           -- bool or int
-              <|> varOrCons     -- x or X
+parseNonApp = try (parens expr)  -- (E)
+             <|> lamAbs          -- \x.E
+             <|> varOrCons       -- x or X
+             <|> try caseof      -- case E of {<lpat>}
+             <|> recIf           -- if E then E else E
+             <|> tup             -- (E, E)
+             <|> try recLet      -- let x = E in E
+             <|> lit             -- bool or int
 
 
 ----------------------------------------
