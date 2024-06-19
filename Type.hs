@@ -10,7 +10,7 @@ data Assump = Id :>: SimpleType deriving (Eq, Show)
 data SimpleType  =  TVar Id
                   | TArr SimpleType SimpleType
                   | TCon String -- todo
-                  | TApp SimpleType SimpleType -- todo
+                  -- | TApp SimpleType SimpleType -- todo
                   | TGen Int -- todo
                   deriving Eq
 
@@ -21,7 +21,7 @@ instance Show SimpleType where -- serve para melhorar o print
    show (TArr (TGen n) t) = "Gen" ++ show n ++ " -> " ++ show t
    show (TArr t t')       = "(" ++ show t ++ ") -> " ++ show t'
    show (TCon s)          = s
-   show (TApp t1 t2)      = "(" ++ show t1 ++ " " ++ show t2 ++ ")"
+   --show (TApp t1 t2)      = "(" ++ show t1 ++ " " ++ show t2 ++ ")"
    show (TGen n)          = "Gen" ++ show n
 
 --------------------------
@@ -75,7 +75,7 @@ instance Subs SimpleType where -- subtituicao em tipo
                     case lookup u s of
                        Just t  -> t
                        Nothing -> TCon u
-  apply s (TApp l r) = TApp (apply s l) (apply s r)
+  --apply s (TApp l r) = TApp (apply s l) (apply s r)
   apply s (TGen i) = case lookup ("Gen" ++ show i) s of
                        Just t -> t
                        Nothing -> TGen i
@@ -84,7 +84,7 @@ instance Subs SimpleType where -- subtituicao em tipo
   tv (TVar u)  = [u]
   tv (TArr l r) = tv l `union` tv r
   tv (TCon u) = [u]
-  tv (TApp l r) = tv l `union` tv r
+  --tv (TApp l r) = tv l `union` tv r
   tv (TGen i) = ["Gen" ++ show i]
 
 
