@@ -3,6 +3,8 @@ import qualified Text.Parsec.Token as L
 import Text.Parsec.Language (emptyDef)
 import Type
 import Data.Char (isLower)
+import Data.List (nub)
+import Control.Monad.Identity
 
 data Pat = PVar Id
            | PLit Literal
@@ -23,12 +25,40 @@ data Expr = Var Id
 
 -- funcs utilizadas do Type.hs => freshVar, /+/, apply, -->, @@, unify
 
-tiContext g i = if l /= [] then t else error ("Undefined: " ++ i ++ "\n")
+tiContext :: [Assump] -> Id -> TI SimpleType
+tiContext g i = if l /= [] then inst t else error ("Undefined: " ++ i ++ "\n")
    where
       l = dropWhile (\(i' :>: _) -> i /= i' ) g
       (_ :>: t) = head l
 
-tiExpr g (Var i) = return (tiContext g i, [])
+findQuantifiers :: SimpleType -> [SimpleType]
+findQuantifiers (TVar u)   = []
+findQuantifiers (TArr l r) = findQuantifiers l ++ findQuantifiers r
+findQuantifiers (TCon u)   = []
+findQuantifiers (TGen u)   = [TGen u]
+
+mapTGensToFreshVars :: [SimpleType] -> TI Subst
+mapTGensToFreshVars tgens = do
+    mapM createFreshVarSubst tgens
+  where
+    createFreshVarSubst :: SimpleType -> TI (Id, SimpleType)
+    createFreshVarSubst (TGen n) = do
+        b <- freshVar
+        return ("Gen" ++ show n, b)
+    createFreshVarSubst _ = error "Expected a TGen"
+
+inst :: SimpleType -> TI SimpleType
+inst t = do
+            let x = nub $ findQuantifiers t
+            if x /= [] then
+                do
+                  s <- mapTGensToFreshVars x
+                  return $ apply s t
+            else
+                return t
+
+tiExpr :: [Assump] -> Expr -> TI (SimpleType, Subst)
+tiExpr g (Var i) = do {t <- tiContext g i; return (t, [])}
 tiExpr g (App e e') = do (t, s1) <- tiExpr g e
                          (t', s2) <- tiExpr (apply s1 g) e'
                          b <- freshVar
@@ -37,8 +67,8 @@ tiExpr g (App e e') = do (t, s1) <- tiExpr g e
 tiExpr g (Lam i e) = do b <- freshVar
                         (t, s)  <- tiExpr (g/+/[i:>:b]) e
                         return (apply s (b --> t), s)
-tiExpr g (Const i) = return (tiContext g i, [])
-tiExpr g (Lit (LitBool b)) = return (tiContext g (show b), [])
+tiExpr g (Const i) = do {t <- tiContext g i; return (t, [])}
+tiExpr g (Lit (LitBool b)) = do {t <- tiContext g (show b); return (t, [])}
 tiExpr g (Lit (LitInt i)) = return (TCon "Int", [])
 -- tiExpr g (If e e' e'') = todo
 -- tiExpr g (Case e ((p, e'):patts)) = todo
@@ -53,7 +83,9 @@ ex5 = Lam "w" (Lam "y" (Lam "x" (App (Var "y") (App (App (Var "w") (Var "y")) (V
 ex6 = Lam "x" (Lam "y" (Lam "w" (Lam "u" (App (App (Var "x") (Var "w")) (App (App (Var "y") (Var "w")) (Var "u"))))))
 
 -- (,) : t0 -> (t1 -> (("(,)" t0) t1))  => t0 -> t1 -> (t0, t1)
-iniCont = ["(,)" :>: TArr (TGen 0) (TArr (TGen 1) (TApp (TApp (TCon "(,)") (TGen 0)) (TGen 1))),
+--iniCont = ["(,)" :>: TArr (TGen 0) (TArr (TGen 1) (TApp (TApp (TCon "(,)") (TGen 0)) (TGen 1))),
+--            "True" :>: TCon "Bool", "False" :>: TCon "Bool"]
+iniCont = ["(,)" :>: TArr (TGen 0) (TArr (TGen 1) (TArr (TArr (TCon "(,)") (TGen 0)) (TGen 1))),
             "True" :>: TCon "Bool", "False" :>: TCon "Bool"]
 
 
@@ -120,7 +152,7 @@ recIf = do
     If e1 e2 <$> expr
 
 tup =
-    parens (do {e1 <- expr; symbol ","; App (Const "(,)") . App e1 <$> expr;})
+    parens (do {e1 <- expr; symbol ","; App (App (Const "(,)") e1) <$> expr;})
 -- tup =
     --parens (do {e1 <- expr; symbol ","; e2 <- expr; return $ App (Const "(,)") (App e1 e2)})
 
