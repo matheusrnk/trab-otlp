@@ -96,11 +96,11 @@ tiExpr g (Let (i, e) e') = do (t, s1) <- tiExpr g e
                               return (t', s1 @@ s2)
 tiExpr g (Case e patts) = do (t, s) <- tiExpr g e
                              (ts, ss) <- unzipM $ tiPatts (apply s g) patts
-                             let s' = foldr1 (@@) ss
+                             let s' = foldr (@@) [] ss
                              let (tp, te) = unzipAlt ts
-                             let sp = unifyAll s' tp
+                             let sp = unifyAll s' (tp ++ [t])
                              let se = unifyAll (sp @@ s') te
-                             return (apply sp t --> apply se (last te), se)
+                             return (apply se (last te), sp)
                              -- (tp, sp):(te, se):xs
                              -- é necessário fazer isso pois precisamos unificar o padrões com eles mesmos
                              -- e as expressões com elas mesmas.
@@ -141,7 +141,7 @@ inferTypePat g (PLit (LitInt i)) = return (TCon "Int", [])
 inferTypePat g (PCon i patts) = do t <- tiContext g i
                                    let s = []
                                    (ts, ss) <- mapAndUnzipM (inferTypePat (apply s g)) patts
-                                   let s' = foldr1 (@@) ss
+                                   let s' = foldr (@@) [] ss
                                    return (foldr1 TArr (ts ++ [t]), s' @@ s)
 
 --- Examples ---
@@ -252,8 +252,8 @@ pats = do {p <- pat; ps <- pats; return (p:ps)}
       <|> return []
 
 pat = pconTup
-    <|> pVarOrPCon
-    <|> pConsLit
+    <|> try pVarOrPCon
+    <|> try pConsLit
 
 patExpr = do
     p <- pat
