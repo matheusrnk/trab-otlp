@@ -3,7 +3,7 @@ import qualified Text.Parsec.Token as L
 import Text.Parsec.Language (emptyDef)
 import Type
 import Data.Char (isLower)
-import Data.List (nub)
+import Data.List ( (\\), nub )
 import Control.Monad.Identity
 
 data Pat = PVar Id
@@ -57,6 +57,18 @@ inst t = do
             else
                 return t
 
+closure :: [Assump] -> SimpleType -> [Assump]
+closure g t = do
+                let ids = tv t \\ tv g
+                let assumps = gen ids t
+                assumps
+
+-- gen rule
+-- cria um TGen para cada id
+-- verificar se isso aqui pode ou se é necessário um "fresh"
+gen :: [Id] -> SimpleType -> [Assump]
+gen ids t = zipWith (\i n -> i :>: TGen n) ids [1..]
+
 tiExpr :: [Assump] -> Expr -> TI (SimpleType, Subst)
 tiExpr g (Var i) = do {t <- tiContext g i; return (t, [])}
 tiExpr g (App e e') = do (t, s1) <- tiExpr g e
@@ -70,9 +82,67 @@ tiExpr g (Lam i e) = do b <- freshVar
 tiExpr g (Const i) = do {t <- tiContext g i; return (t, [])}
 tiExpr g (Lit (LitBool b)) = do {t <- tiContext g (show b); return (t, [])}
 tiExpr g (Lit (LitInt i)) = return (TCon "Int", [])
--- tiExpr g (If e e' e'') = todo
--- tiExpr g (Case e ((p, e'):patts)) = todo
--- tiExpr g (Let (i, e) e') = todo
+tiExpr g (If e e1 e2) = do (t, s1) <- tiExpr g e
+                           if apply s1 t /= TCon "Bool"
+                            then error "Expected Bool type in 'e' in IF rule"
+                            else do
+                                (t1, s2) <- tiExpr (apply s1 g) e1
+                                (t2, s3) <- tiExpr (apply s2 (apply s1 g)) e2
+                                let s4 = unify (apply s3 t1) t2
+                                return (apply s4 t2, s4 @@ s3 @@ s2 @@ s1)
+tiExpr g (Let (i, e) e') = do (t, s1) <- tiExpr g e
+                              let newg = apply s1 g
+                              (t', s2) <- tiExpr (newg/+/closure newg t) e'
+                              return (t', s1 @@ s2)
+tiExpr g (Case e patts) = do (t, s) <- tiExpr g e
+                             (ts, ss) <- unzipM $ tiPatts (apply s g) patts
+                             let s' = foldr1 (@@) ss
+                             let (tp, te) = unzipAlt ts
+                             let sp = unifyAll s' tp
+                             let se = unifyAll (sp @@ s') te
+                             return (apply sp t --> apply se (last te), se)
+                             -- (tp, sp):(te, se):xs
+                             -- é necessário fazer isso pois precisamos unificar o padrões com eles mesmos
+                             -- e as expressões com elas mesmas.
+
+unzipAlt :: [a] -> ([a], [a])
+unzipAlt xs = unzipHelper xs ([], [])
+
+unzipHelper :: [a] -> ([a], [a]) -> ([a], [a])
+unzipHelper [] (as, bs) = (reverse as, reverse bs)
+unzipHelper [x] (as, bs) = (reverse (x:as), reverse bs)
+unzipHelper (x:y:xs) (as, bs) = unzipHelper xs (x:as, y:bs)
+
+unifyAll :: Subst -> [SimpleType] -> Subst
+unifyAll s [] = s
+unifyAll s [t] = s
+unifyAll s (t1:t2:ts) = do
+                        let s1 = unify (apply s t1) t2
+                        unifyAll s1 (t2:ts)
+
+unzipM :: TI [(a, b)] -> TI ([a], [b])
+unzipM = fmap unzip
+
+
+tiPatts :: [Assump] -> [(Pat, Expr)] -> TI [(SimpleType, Subst)]
+tiPatts g [] = return []
+tiPatts g ((pi, ei):patts) = do
+                               (tp, sp) <- inferTypePat g pi
+                               (te, se) <- tiExpr (apply sp g) ei
+                               xs <- tiPatts (apply se g) patts
+                               return $ (tp, sp):(te, se):xs
+
+
+
+inferTypePat :: [Assump] -> Pat -> TI (SimpleType, Subst)
+inferTypePat g (PVar i) = do {t <- tiContext g i; return (t, [])}
+inferTypePat g (PLit (LitBool b)) = do {t <- tiContext g (show b); return (t, [])}
+inferTypePat g (PLit (LitInt i)) = return (TCon "Int", [])
+inferTypePat g (PCon i patts) = do t <- tiContext g i
+                                   let s = []
+                                   (ts, ss) <- mapAndUnzipM (inferTypePat (apply s g)) patts
+                                   let s' = foldr1 (@@) ss
+                                   return (foldr1 TArr (ts ++ [t]), s' @@ s)
 
 --- Examples ---
 ex1 = Lam "f" (Lam "x" (App (Var "f") (Var "x")))
@@ -86,7 +156,8 @@ ex6 = Lam "x" (Lam "y" (Lam "w" (Lam "u" (App (App (Var "x") (Var "w")) (App (Ap
 --iniCont = ["(,)" :>: TArr (TGen 0) (TArr (TGen 1) (TApp (TApp (TCon "(,)") (TGen 0)) (TGen 1))),
 --            "True" :>: TCon "Bool", "False" :>: TCon "Bool"]
 iniCont = ["(,)" :>: TArr (TGen 0) (TArr (TGen 1) (TArr (TArr (TCon "(,)") (TGen 0)) (TGen 1))),
-            "True" :>: TCon "Bool", "False" :>: TCon "Bool"]
+            "True" :>: TCon "Bool", "False" :>: TCon "Bool", 
+            "Just" :>: TArr (TGen 0) (TArr (TCon "Maybe") (TGen 0)), "Nothing" :>: TArr (TCon "Maybe") (TGen 0)]
 
 
 infer e = runTI (tiExpr iniCont e) -- passa o contexto inicial

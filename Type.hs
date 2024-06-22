@@ -71,7 +71,7 @@ instance Subs SimpleType where -- subtituicao em tipo
                        Just t  -> t -- retorna o seu mapeamento associado
                        Nothing -> TVar u -- senão, não tem e fica não-modificado
   apply s (TArr l r) =  TArr (apply s l) (apply s r)
-  apply s (TCon u) = 
+  apply s (TCon u) =
                     case lookup u s of
                        Just t  -> t
                        Nothing -> TCon u
@@ -79,13 +79,13 @@ instance Subs SimpleType where -- subtituicao em tipo
   apply s (TGen i) = case lookup ("Gen" ++ show i) s of
                        Just t -> t
                        Nothing -> TGen i
-  
+
 
   tv (TVar u)  = [u]
   tv (TArr l r) = tv l `union` tv r
-  tv (TCon u) = [u]
+  tv (TCon u) = []
   --tv (TApp l r) = tv l `union` tv r
-  tv (TGen i) = ["Gen" ++ show i]
+  tv (TGen i) = []
 
 
 instance Subs a => Subs [a] where
@@ -104,12 +104,17 @@ instance Subs Assump where -- substituicao em contexto
 
 varBind :: Id -> SimpleType -> Maybe Subst
 varBind u t | t == TVar u   = Just []
-            | u `elem` tv t = Nothing -- verifica recursividade
+            | u `elem` tv t = Nothing -- verifica se a variavel "u" está em "t" (recursividade)
             | otherwise     = Just [(u, t)]
 
 conBind :: Id -> SimpleType -> Maybe Subst
 conBind u t | t == TCon u = Just []
             | otherwise   = Nothing -- pq nao tem como unificar, por exemplo "int ~ bool"
+
+genBind :: Int -> SimpleType -> Maybe Subst
+genBind i t | t == TGen i = Just []
+            | ("Gen" ++ show i) `elem` tv t = Nothing
+            | otherwise   = Just [("Gen" ++ show i, t)]
 
 
 -- tenta fazer a unificação propriamente
@@ -121,6 +126,8 @@ mgu (t,        TVar u   )   =  varBind u t
 mgu (TVar u,   t        )   =  varBind u t
 mgu (t,        TCon u   )   =  conBind u t
 mgu (TCon u,   t        )   =  conBind u t
+mgu (t,        TGen i   )   =  genBind i t
+mgu (TGen i,   t        )   =  genBind i t
 
 unify t t' =  case mgu (t,t') of
     Nothing -> error ("\ntrying to unify:\n" ++ (show t) ++ "\nand\n" ++
