@@ -171,7 +171,7 @@ lingDef = emptyDef
            ,L.identStart   = letter
            ,L.identLetter  = letter
            ,L.reservedNames = ["let", "in", "if", "then", "else", "True", "False", "case", "of"]
-           ,L.reservedOpNames = [".", "=", "->"]
+           ,L.reservedOpNames = ["=", "->"]
           }
 
 lexical = L.makeTokenParser lingDef
@@ -210,7 +210,7 @@ lit = do {Lit <$> recLit;}
 
 lamAbs = do symbol "\\"
             i <- identifier
-            reservedOp "."
+            symbol "."
             e <- expr
             return (Lam i e)
 
