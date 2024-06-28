@@ -57,17 +57,18 @@ inst t = do
             else
                 return t
 
-closure :: [Assump] -> SimpleType -> [Assump]
+
+closure :: [Assump] -> SimpleType -> Subst
 closure g t = do
                 let ids = tv t \\ tv g
-                let assumps = gen ids t
-                assumps
+                let subst = gen ids t
+                subst
 
 -- gen rule
 -- cria um TGen para cada id
 -- verificar se isso aqui pode ou se é necessário um "fresh"
-gen :: [Id] -> SimpleType -> [Assump]
-gen ids t = zipWith (\i n -> i :>: TGen n) ids [1..]
+gen :: [Id] -> SimpleType -> Subst
+gen ids t = zipWith (\i n -> (i, TGen n)) ids [1..]
 
 tiExpr :: [Assump] -> Expr -> TI (SimpleType, Subst)
 tiExpr g (Var i) = do {t <- tiContext g i; return (t, [])}
@@ -91,8 +92,11 @@ tiExpr g (If e e1 e2) = do (t, s1) <- tiExpr g e
                                 let s4 = unify (apply s3 t1) t2
                                 return (apply s4 t2, s4 @@ s3 @@ s2 @@ s1)
 tiExpr g (Let (i, e) e') = do (t, s1) <- tiExpr g e
+                              --should quantify t
                               let newg = apply s1 g
-                              (t', s2) <- tiExpr (newg/+/closure newg t) e'
+                              let st = closure newg t
+                              let t'' = apply st t
+                              (t', s2) <- tiExpr (apply s1 (newg/+/[i:>:t''])) e'
                               return (t', s1 @@ s2)
 tiExpr g (Case e patts) = do (t, s) <- tiExpr g e
                              (ts, ss) <- unzipM $ tiPatts (apply s g) patts
