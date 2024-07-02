@@ -57,18 +57,17 @@ inst t = do
             else
                 return t
 
-
-closure :: [Assump] -> SimpleType -> Subst
+closure :: [Assump] -> SimpleType -> [Assump]
 closure g t = do
                 let ids = tv t \\ tv g
-                let subst = gen ids t
-                subst
+                let assumps = gen ids t
+                assumps
 
 -- gen rule
 -- cria um TGen para cada id
 -- verificar se isso aqui pode ou se é necessário um "fresh"
-gen :: [Id] -> SimpleType -> Subst
-gen ids t = zipWith (\i n -> (i, TGen n)) ids [1..]
+gen :: [Id] -> SimpleType -> [Assump]
+gen ids t = zipWith (\i n -> i :>: TGen n) ids [1..]
 
 tiExpr :: [Assump] -> Expr -> TI (SimpleType, Subst)
 tiExpr g (Var i) = do {t <- tiContext g i; return (t, [])}
@@ -91,12 +90,9 @@ tiExpr g (If e e1 e2) = do (t, s1) <- tiExpr g e
                                 (t2, s3) <- tiExpr (apply s2 (apply s1 g)) e2
                                 let s4 = unify (apply s3 t1) t2
                                 return (apply s4 t2, s4 @@ s3 @@ s2 @@ s1)
-tiExpr g (Let (i, e) e') = do (te, s1) <- tiExpr g e
-                              --should quantify t
-                              let newg = apply s1 g
-                              let st = closure newg te
-                              let te' = apply st te
-                              (t', s2) <- tiExpr (apply s1 (newg/+/[i:>:te'])) e'
+tiExpr g (Let (i, e) e') = do (t, s1) <- tiExpr g e
+                              let newg = apply s1 (g /+/ [i:>:t])
+                              (t', s2) <- tiExpr (newg/+/closure newg t) e'
                               return (t', s1 @@ s2)
 tiExpr g (Case e patts) = do (t, s) <- tiExpr g e
                              (ts, ss) <- unzipM $ tiPatts (apply s g) patts
@@ -105,6 +101,9 @@ tiExpr g (Case e patts) = do (t, s) <- tiExpr g e
                              let sp = unifyAll s' (tp ++ [t])
                              let se = unifyAll (sp @@ s') te
                              return (apply se (last te), sp)
+                             --do (t, s) <- tiExpr g e
+                             -- tiAlts t1 patts = contexto
+                             -- return (t, s @@ )
                              -- (tp, sp):(te, se):xs
                              -- é necessário fazer isso pois precisamos unificar o padrões com eles mesmos
                              -- e as expressões com elas mesmas.
@@ -128,25 +127,36 @@ unzipM :: TI [(a, b)] -> TI ([a], [b])
 unzipM = fmap unzip
 
 
-tiPatts :: [Assump] -> [(Pat, Expr)] -> TI [(SimpleType, Subst)]
-tiPatts g [] = return []
-tiPatts g ((pi, ei):patts) = do
-                               (tp, sp) <- inferTypePat g pi
-                               (te, se) <- tiExpr (apply sp g) ei
-                               xs <- tiPatts (apply se g) patts
-                               return $ (tp, sp):(te, se):xs
+--tiPatts :: [Assump] -> [(Pat, Expr)] -> TI [(SimpleType, Subst)]
+--tiPatts g [] = return []
+--tiPatts g ((pi, ei):patts) = do
+--                               (tp, sp) <- inferTypePat g pi
+--                               (te, se) <- tiExpr (apply sp g) ei
+--                               xs <- tiPatts (apply se g) patts
+--                               return $ (tp, sp):(te, se):xs
+
+tiPatts g t [] = return []
+tiPatts g t ((pi, ei):patts) = do
+                                newg <- inferTypePat g pi
+                                let g' = g /+/ newg
 
 
 
-inferTypePat :: [Assump] -> Pat -> TI (SimpleType, Subst)
-inferTypePat g (PVar i) = do {t <- tiContext g i; return (t, [])}
-inferTypePat g (PLit (LitBool b)) = do {t <- tiContext g (show b); return (t, [])}
-inferTypePat g (PLit (LitInt i)) = return (TCon "Int", [])
-inferTypePat g (PCon i patts) = do t <- tiContext g i
-                                   let s = []
-                                   (ts, ss) <- mapAndUnzipM (inferTypePat (apply s g)) patts
-                                   let s' = foldr (@@) [] ss
-                                   return (foldr1 TArr (ts ++ [t]), s' @@ s)
+inferTypePat :: [Assump] -> Pat -> TI [Assump]
+inferTypePat g (PVar i) = do {b <- freshVar; return $ g /+/ [i:>:b]}
+inferTypePat g (PLit (LitBool b)) = return g
+inferTypePat g (PLit (LitInt i)) = return g
+inferTypePat g (PCon i patts) = do
+                                  b <- freshVar
+                                  gs <- handlePatts g patts
+                                  return $ g /+/ gs
+
+handlePatts :: [Assump] -> [Pat] -> TI [Assump]
+handlePatts g [] = return []
+handlePatts g (x:xs) = do
+                    newg <- inferTypePat g x
+                    newg' <- handlePatts g xs
+                    return $ newg /+/ newg'
 
 --- Examples ---
 ex1 = Lam "f" (Lam "x" (App (Var "f") (Var "x")))
