@@ -84,13 +84,11 @@ tiExpr g (Const i) = do {t <- tiContext g i; return (t, [])}
 tiExpr g (Lit (LitBool b)) = do {t <- tiContext g (show b); return (t, [])}
 tiExpr g (Lit (LitInt i)) = return (TCon "Int", [])
 tiExpr g (If e e1 e2) = do (t, s1) <- tiExpr g e
-                           if apply s1 t /= TCon "Bool"
-                            then error "Expected Bool type in 'e' in IF rule"
-                            else do
-                                (t1, s2) <- tiExpr (apply s1 g) e1
-                                (t2, s3) <- tiExpr (apply s2 (apply s1 g)) e2
-                                let s4 = unify (apply s3 t1) t2
-                                return (apply s4 t2, s4 @@ s3 @@ s2 @@ s1)
+                           let s = unify (apply s1 t) (TCon "Bool")
+                           (t1, s2) <- tiExpr (apply s g) e1
+                           (t2, s3) <- tiExpr (apply s2 (apply s g)) e2
+                           let s4 = unify (apply s3 t1) t2
+                           return (apply s4 t2, s4 @@ s3 @@ s2 @@ s1 @@ s)
 tiExpr g (Let (i, e) e') = do (te, s1) <- tiExpr g e
                               --should quantify t
                               let newg = apply s1 g
@@ -104,7 +102,7 @@ tiExpr g (Case e patts) = do (t, s) <- tiExpr g e
                              let (tp, te) = unzipAlt ts
                              let sp = unifyAll s' (tp ++ [t])
                              let se = unifyAll (sp @@ s') te
-                             return (apply se (last te), sp)
+                             return (apply se (last te), sp @@ se)
                              -- (tp, sp):(te, se):xs
                              -- é necessário fazer isso pois precisamos unificar o padrões com eles mesmos
                              -- e as expressões com elas mesmas.
@@ -136,15 +134,13 @@ tiPatts g ((pi, ei):patts) = do
                                xs <- tiPatts (apply se g) patts
                                return $ (tp, sp):(te, se):xs
 
-
-
 inferTypePat :: [Assump] -> Pat -> TI (SimpleType, Subst)
-inferTypePat g (PVar i) = do {t <- tiContext g i; return (t, [])}
+inferTypePat g (PVar i) = do {b <- freshVar; return (b, [])}
 inferTypePat g (PLit (LitBool b)) = do {t <- tiContext g (show b); return (t, [])}
 inferTypePat g (PLit (LitInt i)) = return (TCon "Int", [])
-inferTypePat g (PCon i patts) = do t <- tiContext g i
+inferTypePat g (PCon i patts) = do t <- freshVar
                                    let s = []
-                                   (ts, ss) <- mapAndUnzipM (inferTypePat (apply s g)) patts
+                                   (ts, ss) <- mapAndUnzipM (inferTypePat (apply s (g /+/ [i:>:t]))) patts
                                    let s' = foldr (@@) [] ss
                                    return (foldr1 TArr (ts ++ [t]), s' @@ s)
 
